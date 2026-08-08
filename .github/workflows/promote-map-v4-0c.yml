@@ -1,0 +1,67 @@
+name: Promote Rust map release
+
+on:
+  push:
+    paths:
+      - '.github/workflows/promote-map-v4-0c.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  promote-map:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download current map asset and publish renamed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OLD_ASSET: PrimewalslandV4.0b.map
+          NEW_ASSET: PrimewalslandV4.0c.map
+          NEW_TAG: v4.0c
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh api --paginate "repos/${REPO}/releases?per_page=100" > releases.json
+
+          python3 - <<'PY' > asset.env
+          import json, os, sys
+
+          old_asset = os.environ['OLD_ASSET']
+          with open('releases.json', 'r', encoding='utf-8') as f:
+              releases = json.load(f)
+
+          for release in releases:
+              for asset in release.get('assets', []):
+                  if asset.get('name') == old_asset:
+                      print(f"SOURCE_TAG={release['tag_name']}")
+                      print(f"ASSET_ID={asset['id']}")
+                      print(f"ASSET_SIZE={asset.get('size', 0)}")
+                      sys.exit(0)
+
+          raise SystemExit(f"Asset not found in any release: {old_asset}")
+          PY
+
+          source asset.env
+          echo "Found ${OLD_ASSET} on release ${SOURCE_TAG} (${ASSET_SIZE} bytes)"
+
+          gh api \
+            -H "Accept: application/octet-stream" \
+            "repos/${REPO}/releases/assets/${ASSET_ID}" > "${OLD_ASSET}"
+
+          test -s "${OLD_ASSET}"
+          mv "${OLD_ASSET}" "${NEW_ASSET}"
+          sha256sum "${NEW_ASSET}"
+
+          if gh release view "${NEW_TAG}" >/dev/null 2>&1; then
+            gh release upload "${NEW_TAG}" "${NEW_ASSET}" --clobber
+          else
+            gh release create "${NEW_TAG}" "${NEW_ASSET}" \
+              --target "${GITHUB_SHA}" \
+              --title "Primewalsland V4.0c" \
+              --notes "Same updated Brume custom map content republished under a new unique filename to invalidate Rust client world-file cache and fix World File Mismatch after the map update."
+          fi
+
+          echo "DOWNLOAD_URL=https://github.com/${REPO}/releases/download/${NEW_TAG}/${NEW_ASSET}" >> "${GITHUB_STEP_SUMMARY}"
