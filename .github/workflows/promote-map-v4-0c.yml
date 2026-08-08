@@ -53,7 +53,8 @@ jobs:
 
           test -s "${OLD_ASSET}"
           mv "${OLD_ASSET}" "${NEW_ASSET}"
-          sha256sum "${NEW_ASSET}"
+          SHA256="$(sha256sum "${NEW_ASSET}" | awk '{print $1}')"
+          echo "SHA256=${SHA256}"
 
           if gh release view "${NEW_TAG}" >/dev/null 2>&1; then
             gh release upload "${NEW_TAG}" "${NEW_ASSET}" --clobber
@@ -64,4 +65,13 @@ jobs:
               --notes "Same updated Brume custom map content republished under a new unique filename to invalidate Rust client world-file cache and fix World File Mismatch after the map update."
           fi
 
-          echo "DOWNLOAD_URL=https://github.com/${REPO}/releases/download/${NEW_TAG}/${NEW_ASSET}" >> "${GITHUB_STEP_SUMMARY}"
+          DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${NEW_TAG}/${NEW_ASSET}"
+          echo "DOWNLOAD_URL=${DOWNLOAD_URL}" >> "${GITHUB_STEP_SUMMARY}"
+
+          MARKER_PATH=".release-v4.0c-success-${GITHUB_RUN_ID}.txt"
+          MARKER_CONTENT="PrimewalslandV4.0c.map published successfully\nsource=${SOURCE_TAG}/${OLD_ASSET}\nsha256=${SHA256}\nurl=${DOWNLOAD_URL}\nrun_id=${GITHUB_RUN_ID}\n"
+          ENCODED="$(printf '%b' "${MARKER_CONTENT}" | base64 -w0)"
+          gh api -X PUT "repos/${REPO}/contents/${MARKER_PATH}" \
+            -f message="Record successful V4.0c map release" \
+            -f content="${ENCODED}" \
+            -f branch="main" >/dev/null
